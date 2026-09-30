@@ -1,0 +1,5 @@
+{"type":"response_item","payload":{"type":"custom_tool_call","call_id":"a","name":"exec_command"}}
+{"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"a","output":"A short result that appears twice."}}
+{"type":"response_item","payload":{"type":"custom_tool_call","call_id":"b","name":"exec_command"}}
+{"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"b","output":"A short result that appears twice."}}
+{"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"c","output":"Warning: truncated output (original token count: 9000)"}}

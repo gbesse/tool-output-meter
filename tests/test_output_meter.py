@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from zipfile import ZipFile
 
-from output_meter import analyze, analyze_context, read_dsh
+from output_meter import analyze, analyze_context, analyze_memory_arrival, read_dsh, render_memory_html
 
 
 class OutputMeterTests(unittest.TestCase):
@@ -61,3 +61,24 @@ class OutputMeterTests(unittest.TestCase):
         result = analyze_context((json.dumps(item) for item in records))
         self.assertEqual(result["groups"][0]["first_turn"], 1)
         self.assertEqual(result["groups"][0]["last_turn"], 2)
+
+    def test_memory_arrival_distinguishes_present_empty_and_missing_without_text(self):
+        path = Path(__file__).parents[1] / "fixtures" / "memory-arrival.jsonl"
+        result = analyze_memory_arrival(read_dsh(path))
+        self.assertEqual((result["confirmed_memory"], result["empty_memory"], result["without_injection"]), (1, 1, 1))
+        self.assertNotIn("release requires", json.dumps(result))
+
+    def test_unknown_hindsight_wrapper_is_not_claimed_empty(self):
+        record = {"type": "user/message", "data": {"turn": 1, "source": {"kind": "plugin:hindsight"},
+                  "content": [{"type": "text", "text": "memory format changed"}]}}
+        result = analyze_memory_arrival([json.dumps(record)])
+        self.assertEqual(result["unclassified"], 1)
+        self.assertEqual(result["empty_memory"], 0)
+
+    def test_memory_xray_html_escapes_turn_and_omits_memory_text(self):
+        result = {"turns": 1, "timeline": [{"turn": "<script>", "status": "confirmed_memory"}],
+                  "note": "Content-free report"}
+        page = render_memory_html(result, "fr")
+        self.assertIn("&lt;script&gt;", page)
+        self.assertNotIn("<script>", page)
+        self.assertIn('lang="fr"', page)

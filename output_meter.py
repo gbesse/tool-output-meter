@@ -3,8 +3,10 @@
 import argparse
 import difflib
 import hashlib
+import html
 import json
 import math
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -29,6 +31,18 @@ CONTEXT_NOTES = {
     "en": "Repeated characters count additional appended messages only. This is not provider token usage, billable cost, or proof that previous content remained visible after compaction.",
     "fr": "Les caractères répétés ne comptent que les messages ajoutés en plus. Ce n'est ni le nombre de tokens du fournisseur, ni un coût facturé, ni la preuve qu'un ancien contenu reste visible après compression.",
     "es": "Los caracteres repetidos solo cuentan mensajes añadidos de más. No son tokens del proveedor, coste facturado ni prueba de que el contenido anterior siguiera visible tras compactar.",
+}
+MEMORY_FRAME_END = "the newer fact supersedes the stale one in future retrieval.\n\n"
+MEMORY_TAG = re.compile(r"<hindsight_memory>(.*?)</hindsight_memory>", re.IGNORECASE | re.DOTALL)
+MEMORY_LABELS = {
+    "en": ("Memory arrival", "turns", "with confirmed memory", "with empty memory", "unclassified", "without injection"),
+    "fr": ("Arrivée des souvenirs", "tours", "avec souvenir confirmé", "avec mémoire vide", "non classés", "sans injection"),
+    "es": ("Llegada de recuerdos", "turnos", "con recuerdo confirmado", "con memoria vacía", "sin clasificar", "sin inyección"),
+}
+MEMORY_NOTES = {
+    "en": "Only the known Hindsight coding-agents 0.8.0 wrapper is classified. Other blocks remain unclassified; arrival does not prove the agent used or trusted a memory.",
+    "fr": "Seul le format connu de Hindsight coding-agents 0.8.0 est classé. Les autres blocs restent non classés ; l'arrivée ne prouve pas que l'agent ait utilisé ou cru un souvenir.",
+    "es": "Solo se clasifica el formato conocido de Hindsight coding-agents 0.8.0. Los demás bloques quedan sin clasificar; la llegada no prueba que el agente utilizara o creyera un recuerdo.",
 }
 MARKERS = ("Warning: truncated output", "tokens truncated", "characters truncated")
 
@@ -158,6 +172,95 @@ def analyze_context(lines, kind_filter="hindsight", lang="en"):
     }
 
 
+def analyze_memory_arrival(lines, lang="en"):
+    """Classify known Hindsight 0.8.0 injections by turn without returning content."""
+    turns = {}
+    active_turn = None
+    for number, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise ValueError(CONTEXT_ERRORS[lang]["format"].format(line=number)) from error
+        if not isinstance(record, dict):
+            raise ValueError(CONTEXT_ERRORS[lang]["format"].format(line=number))
+        data = record.get("data")
+        data = data if isinstance(data, dict) else {}
+        if record.get("type") == "turn/start":
+            active_turn = data.get("turn")
+            if active_turn is not None:
+                turns.setdefault(str(active_turn), set())
+            continue
+        if record.get("type") == "turn/end":
+            active_turn = None
+            continue
+        if record.get("type") != "user/message":
+            continue
+        turn = data.get("turn", active_turn)
+        if turn is None:
+            continue
+        key = str(turn)
+        statuses = turns.setdefault(key, set())
+        source = data.get("source")
+        source_kind = source.get("kind", "") if isinstance(source, dict) else ""
+        if not isinstance(source_kind, str) or "hindsight" not in source_kind.lower():
+            continue
+        content = data.get("content")
+        if not isinstance(content, list):
+            statuses.add("unclassified")
+            continue
+        block_text = "\n".join(part.get("text", "") for part in content
+                               if isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str))
+        match = MEMORY_TAG.search(block_text)
+        if not match or MEMORY_FRAME_END not in match.group(1):
+            statuses.add("unclassified")
+            continue
+        memory = match.group(1).split(MEMORY_FRAME_END, 1)[1].strip()
+        statuses.add("confirmed_memory" if memory else "empty_memory")
+    if not turns:
+        raise ValueError(CONTEXT_ERRORS[lang]["missing"])
+    counts = Counter()
+    timeline = []
+    for turn, statuses in turns.items():
+        if "confirmed_memory" in statuses:
+            status = "confirmed_memory"
+        elif "unclassified" in statuses:
+            status = "unclassified"
+        elif "empty_memory" in statuses:
+            status = "empty_memory"
+        else:
+            status = "without_injection"
+        counts[status] += 1
+        timeline.append({"turn": turn, "status": status})
+    return {"turns": len(turns), **{key: counts[key] for key in
+            ("confirmed_memory", "empty_memory", "unclassified", "without_injection")},
+            "timeline": timeline,
+            "note": MEMORY_NOTES[lang]}
+
+
+def render_memory_html(result, lang="en"):
+    """A self-contained, content-free visual report for the supplied DSH export."""
+    labels = {
+        "en": {"title": "Memory X-Ray", "turn": "Turn", "confirmed_memory": "Memory arrived", "empty_memory": "Empty memory", "unclassified": "Unknown format", "without_injection": "No injection"},
+        "fr": {"title": "Radiographie de la mémoire", "turn": "Tour", "confirmed_memory": "Souvenir arrivé", "empty_memory": "Mémoire vide", "unclassified": "Format inconnu", "without_injection": "Aucune injection"},
+        "es": {"title": "Radiografía de la memoria", "turn": "Turno", "confirmed_memory": "Recuerdo recibido", "empty_memory": "Memoria vacía", "unclassified": "Formato desconocido", "without_injection": "Sin inyección"},
+    }[lang]
+    colors = {"confirmed_memory": "#16803c", "empty_memory": "#ca8a04", "unclassified": "#6b7280", "without_injection": "#dc2626"}
+    items = "\n".join(
+        f'<li><span>{html.escape(labels["turn"])} {html.escape(str(item["turn"]))}</span>'
+        f'<strong style="color:{colors[item["status"]]}">{html.escape(labels[item["status"]])}</strong></li>'
+        for item in result["timeline"])
+    note = html.escape(result["note"])
+    return ("<!doctype html><html lang=\"" + lang + "\"><meta charset=\"utf-8\"><meta name=\"viewport\" "
+            "content=\"width=device-width,initial-scale=1\"><title>" + html.escape(labels["title"]) + "</title>"
+            "<style>body{font:16px system-ui;max-width:760px;margin:2rem auto;padding:0 1rem;color:#17212b}"
+            "li{display:flex;justify-content:space-between;gap:1rem;padding:.6rem;border-bottom:1px solid #ddd}"
+            "ul{padding:0;list-style:none}small{color:#48515c}</style><h1>" + html.escape(labels["title"]) +
+            "</h1><p>" + str(result["turns"]) + " " + html.escape(MEMORY_LABELS[lang][1]) +
+            "</p><ul>" + items + "</ul><small>" + note + "</small></html>\n")
+
+
 def read_dsh(path, lang="en"):
     """Yield the root log from an official DSH export ZIP or an extracted JSONL."""
     if path.suffix == ".zstd":
@@ -178,22 +281,27 @@ def read_dsh(path, lang="en"):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("demo", "report", "context-demo", "context"))
+    parser.add_argument("command", choices=("demo", "report", "context-demo", "context", "memory-demo", "memory"))
     parser.add_argument("path", nargs="?", type=Path)
     parser.add_argument("--lang", choices=LABELS, default="en")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--html", type=Path, help="Write a local Memory X-Ray HTML report for memory commands")
     parser.add_argument("--kind", default="hindsight", help="DSH source / source DSH / fuente DSH; '' = all / toutes / todas")
     args = parser.parse_args(argv)
     if args.command == "demo":
         path = Path(__file__).parent / "fixtures" / "trace.jsonl"
     elif args.command == "context-demo":
         path = Path(__file__).parent / "fixtures" / "dsh-session.jsonl"
+    elif args.command == "memory-demo":
+        path = Path(__file__).parent / "fixtures" / "memory-arrival.jsonl"
     else:
         path = args.path
     if not path:
         parser.error(CONTEXT_ERRORS[args.lang]["path"] if args.command == "context" else "report requires a Codex JSONL path")
     try:
-        if args.command in ("context-demo", "context"):
+        if args.command in ("memory-demo", "memory"):
+            result = analyze_memory_arrival(read_dsh(path, args.lang), args.lang)
+        elif args.command in ("context-demo", "context"):
             result = analyze_context(read_dsh(path, args.lang), args.kind, args.lang)
         else:
             with path.open(encoding="utf-8") as handle:
@@ -203,6 +311,12 @@ def main(argv=None):
         return 2
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
+    elif args.command in ("memory-demo", "memory"):
+        title, turns, present, empty, unknown, absent = MEMORY_LABELS[args.lang]
+        print(title)
+        print(f"{result['turns']} {turns}; {result['confirmed_memory']} {present}; "
+              f"{result['empty_memory']} {empty}; {result['unclassified']} {unknown}; "
+              f"{result['without_injection']} {absent}")
     elif args.command in ("context-demo", "context"):
         title, injections, repeated, chars, tokens = CONTEXT_LABELS[args.lang]
         print(title)
@@ -215,6 +329,10 @@ def main(argv=None):
         print(f"~{result['estimated_tokens']} {tokens} (approximation)")
         for row in result["top"]:
             print(f"{row['tool']}: {row['characters']} chars")
+    if args.html:
+        if args.command not in ("memory-demo", "memory"):
+            parser.error("--html is available only with memory or memory-demo")
+        args.html.write_text(render_memory_html(result, args.lang), encoding="utf-8")
     return 0
 
 

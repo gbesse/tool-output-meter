@@ -1,0 +1,6 @@
+{"type":"session","version":4,"id":"synthetic-memory-arrival"}
+{"type":"user/message","surfaceOp":"append","data":{"turn":1,"source":{"kind":"user"},"content":[{"type":"text","text":"What did we decide?"}]}}
+{"type":"user/message","surfaceOp":"append","data":{"turn":1,"source":{"kind":"plugin:@vectorize-io/hindsight-coding-agents"},"content":[{"type":"text","text":"<hindsight_memory>\nIf you VERIFY this memory is wrong, CORRECT the record: (3) the evidence you verified — the newer fact supersedes the stale one in future retrieval.\n\nThe release requires source links.\n</hindsight_memory>"}]}}
+{"type":"user/message","surfaceOp":"append","data":{"turn":2,"source":{"kind":"user"},"content":[{"type":"text","text":"And now?"}]}}
+{"type":"user/message","surfaceOp":"append","data":{"turn":2,"source":{"kind":"plugin:@vectorize-io/hindsight-coding-agents"},"content":[{"type":"text","text":"<hindsight_memory>\nIf you VERIFY this memory is wrong, CORRECT the record: (3) the evidence you verified — the newer fact supersedes the stale one in future retrieval.\n\n</hindsight_memory>"}]}}
+{"type":"user/message","surfaceOp":"append","data":{"turn":3,"source":{"kind":"user"},"content":[{"type":"text","text":"One more question"}]}}

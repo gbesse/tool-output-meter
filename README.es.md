@@ -85,4 +85,12 @@ Para el contexto inyectado, los caracteres redundantes solo cuentan mensajes añ
 python3 -m unittest discover -s tests -v
 ```
 
-MIT · v0.1.2-alpha.1
+MIT · v0.1.3
+
+## Verificar el contenido exacto de un recibo
+
+Añadir `--expect-sha256 HUELLA` a `receipt.py watch` para exigir los bytes esperados, no solo HTTP 200. Lee como máximo 1 000 000 bytes, calcula SHA-256 y distingue contenido diferente, no verificado y demasiado grande. Una diferencia detiene la consulta con salida 2; nunca muestra texto de respuesta ni token. La huella debe contener 64 caracteres hexadecimales minúsculos. Se calculan bytes exactos, no JSON normalizado ni equivalencia semántica; contenido idéntico no demuestra indexación ni uso por un agente. Sin la opción conserva la comprobación HTTP anterior.
+
+```sh
+python3 receipt.py watch https://localhost:8888/documents/DOC_ID --expect-sha256 HUELLA --lang es --json
+```

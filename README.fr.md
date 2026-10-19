@@ -85,4 +85,12 @@ Pour le contexte injecté, les caractères redondants ne comptent que les messag
 python3 -m unittest discover -s tests -v
 ```
 
-MIT · v0.1.2-alpha.1
+MIT · v0.1.3
+
+## Vérifier le contenu exact d’un reçu
+
+Ajouter `--expect-sha256 EMPREINTE` à `receipt.py watch` pour exiger les octets attendus, et pas seulement HTTP 200. La commande lit au plus 1 000 000 d’octets, calcule SHA-256 et distingue contenu différent, contenu non vérifié et corps trop volumineux. Un écart arrête la surveillance avec le code 2 ; aucun texte de réponse ni jeton n’est affiché. L’empreinte doit être hexadécimale minuscule sur 64 caractères. Le hachage porte sur les octets de réponse exacts, pas sur un JSON normalisé ou une équivalence de sens ; un contenu identique ne prouve pas l’indexation ou l’utilisation par un agent. Sans cette option, la vérification HTTP précédente est conservée.
+
+```sh
+python3 receipt.py watch https://localhost:8888/documents/DOC_ID --expect-sha256 EMPREINTE --lang fr --json
+```

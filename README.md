@@ -85,4 +85,12 @@ For injected context, redundant characters count extra appended messages only. T
 python3 -m unittest discover -s tests -v
 ```
 
-MIT · v0.1.2-alpha.1
+MIT · v0.1.3
+
+## Verify exact receipt content
+
+Add `--expect-sha256 HASH` to `receipt.py watch` to require the expected bytes, not just HTTP 200. The command reads at most 1,000,000 bytes, calculates SHA-256 and distinguishes mismatched, unverified and oversized content. A mismatch stops polling with exit 2; no response text or token is printed. The digest must be 64 lowercase hexadecimal characters. It hashes exact response bytes, not normalized JSON or semantic equivalence; matching content does not prove indexing or agent use. Omitting the option preserves existing HTTP-only checks.
+
+```sh
+python3 receipt.py watch https://localhost:8888/documents/DOC_ID --expect-sha256 HASH --lang en --json
+```

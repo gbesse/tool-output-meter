@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Check when an accepted memory document becomes readable at a supplied URL."""
 import argparse
+import hashlib
 import json
+import math
 import os
+import re
 import sys
 import time
 from urllib.error import HTTPError, URLError
@@ -19,6 +22,34 @@ NOTES = {
     "fr": "GET uniquement. Un 200 prouve que cette URL répond maintenant, pas que le rappel ou l'extraction est terminé.",
     "es": "Solo GET. Un 200 demuestra que esta URL responde ahora, no que la recuperación o extracción haya terminado.",
 }
+for language, messages in {
+    'fr': {'content_mismatch': 'Le contenu ne correspond pas', 'content_unverified': 'Contenu non vérifié', 'body_limit': 'Corps trop volumineux'},
+    'en': {'content_mismatch': 'Content does not match', 'content_unverified': 'Content not verified', 'body_limit': 'Body too large'},
+    'es': {'content_mismatch': 'El contenido no coincide', 'content_unverified': 'Contenido no verificado', 'body_limit': 'Cuerpo demasiado grande'},
+}.items():
+    TEXT[language].update(messages)
+
+
+def read_document(url, token=None, max_bytes=1_000_000):
+    """Read bounded response bytes for identity checks without returning their content."""
+    if type(max_bytes) is not int or not 1 <= max_bytes <= 10_000_000:
+        raise ValueError('invalid body limit')
+    class NoRedirect(HTTPRedirectHandler):
+        def redirect_request(self, *_args, **_kwargs):
+            return None
+    headers = {'Accept': 'application/json', 'Accept-Encoding': 'identity'}
+    if token:
+        headers['Authorization'] = f'Bearer {token}'
+    try:
+        with build_opener(NoRedirect()).open(Request(url, headers=headers, method='GET'), timeout=10) as response:
+            if response.status != 200:
+                return {'http_status': response.status}
+            raw = response.read(max_bytes + 1)
+            if len(raw) > max_bytes:
+                return {'http_status': 200, 'body_limit': True}
+            return {'http_status': 200, 'content_sha256': hashlib.sha256(raw).hexdigest(), 'content_bytes': len(raw)}
+    except HTTPError as error:
+        return {'http_status': error.code}
 
 
 def read_status(url, token=None):
@@ -37,16 +68,26 @@ def read_status(url, token=None):
         return error.code
 
 
-def observe(fetch, attempts=10, interval=1.0, sleep=time.sleep, lang="en"):
-    if attempts < 1 or interval < 0:
+def observe(fetch, attempts=10, interval=1.0, sleep=time.sleep, lang="en", expected_sha256=None):
+    if type(attempts) is not int or attempts < 1 or type(interval) not in (int, float) or not math.isfinite(interval) or interval < 0:
         raise ValueError("attempts must be positive and interval nonnegative")
+    if expected_sha256 is not None and (not isinstance(expected_sha256, str) or not re.fullmatch(r'[0-9a-f]{64}', expected_sha256)):
+        raise ValueError('SHA-256 attendu non valide. / Invalid expected SHA-256. / SHA-256 esperado no válido.')
     start = time.monotonic()
     for number in range(1, attempts + 1):
-        code = fetch()
-        if not isinstance(code, int):
+        fetched = fetch()
+        details = fetched if isinstance(fetched, dict) else {}
+        code = details.get('http_status') if details else fetched
+        if type(code) is not int:
             raise ValueError("GET status must be an integer")
         if code == 200:
-            status = "visible"
+            actual = details.get('content_sha256')
+            if details.get('body_limit'):
+                status = 'body_limit'
+            elif expected_sha256 is not None:
+                status = 'content_unverified' if actual is None else 'visible' if actual == expected_sha256 else 'content_mismatch'
+            else:
+                status = "visible"
         elif code == 404:
             status = "not_visible"
         elif code in (401, 403):
@@ -56,9 +97,12 @@ def observe(fetch, attempts=10, interval=1.0, sleep=time.sleep, lang="en"):
         else:
             status = "server_error"
         if status != "not_visible" or number == attempts:
-            return {"status": status, "http_status": code, "attempts": number,
+            result = {"status": status, "http_status": code, "attempts": number,
                     "elapsed_seconds": round(time.monotonic() - start, 3),
                     "note": NOTES[lang]}
+            if expected_sha256 is not None:
+                result.update(expected_sha256=expected_sha256, content_sha256=details.get('content_sha256'), content_bytes=details.get('content_bytes'), identity_verified=status == 'visible')
+            return result
         sleep(interval)
     raise AssertionError("unreachable")
 
@@ -72,6 +116,7 @@ def main(argv=None):
     parser.add_argument("--interval", type=float, default=1.0)
     parser.add_argument("--lang", choices=TEXT, default="en")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument('--expect-sha256', help='Empreinte exacte attendue / Expected exact hash / Huella exacta esperada')
     args = parser.parse_args(argv)
     if args.command == "demo":
         statuses = iter((404, 404, 200))
@@ -86,10 +131,10 @@ def main(argv=None):
             parser.error(TEXT[args.lang]["invalid"] + ": token environment variable is empty")
         if token and parsed.scheme == "http" and parsed.hostname not in ("localhost", "127.0.0.1", "::1"):
             parser.error(TEXT[args.lang]["invalid"] + ": bearer token requires HTTPS outside localhost")
-        fetch = lambda: read_status(args.url, token)
+        fetch = lambda: read_document(args.url, token) if args.expect_sha256 else read_status(args.url, token)
         attempts, interval = args.attempts, args.interval
     try:
-        result = observe(fetch, attempts, interval, lang=args.lang)
+        result = observe(fetch, attempts, interval, lang=args.lang, expected_sha256=args.expect_sha256)
     except (ValueError, URLError, OSError) as error:
         print(f"{TEXT[args.lang]['invalid']}: {type(error).__name__}", file=sys.stderr)
         return 1

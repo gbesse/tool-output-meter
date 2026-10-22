@@ -30,6 +30,22 @@ for language, messages in {
     TEXT[language].update(messages)
 
 
+def checked_request(url, token=None):
+    try:
+        parsed=urlsplit(url)
+        if parsed.scheme not in ('http','https') or not parsed.hostname or parsed.username is not None or parsed.password is not None or parsed.fragment or (parsed.port is not None and not 1<=parsed.port<=65535):
+            raise ValueError('url')
+        if token is not None and (not isinstance(token,str) or not token.strip() or '\r' in token or '\n' in token):
+            raise ValueError('token')
+        if token and parsed.scheme!='https' and parsed.hostname not in ('localhost','127.0.0.1','::1'):
+            raise ValueError('transport')
+    except (ValueError,TypeError,AttributeError):
+        raise ValueError('URL ou transport de jeton invalide / Invalid URL or token transport / URL o transporte de token no válido') from None
+    headers={'Accept':'application/json','Accept-Encoding':'identity'}
+    if token:headers['Authorization']='Bearer '+token
+    return Request(url,headers=headers,method='GET')
+
+
 def read_document(url, token=None, max_bytes=1_000_000):
     """Read bounded response bytes for identity checks without returning their content."""
     if type(max_bytes) is not int or not 1 <= max_bytes <= 10_000_000:
@@ -37,11 +53,9 @@ def read_document(url, token=None, max_bytes=1_000_000):
     class NoRedirect(HTTPRedirectHandler):
         def redirect_request(self, *_args, **_kwargs):
             return None
-    headers = {'Accept': 'application/json', 'Accept-Encoding': 'identity'}
-    if token:
-        headers['Authorization'] = f'Bearer {token}'
+    request = checked_request(url, token)
     try:
-        with build_opener(NoRedirect()).open(Request(url, headers=headers, method='GET'), timeout=10) as response:
+        with build_opener(NoRedirect()).open(request, timeout=10) as response:
             if response.status != 200:
                 return {'http_status': response.status}
             raw = response.read(max_bytes + 1)
@@ -57,10 +71,7 @@ def read_status(url, token=None):
         def redirect_request(self, *_args, **_kwargs):
             return None
 
-    headers = {"Accept": "application/json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    request = Request(url, headers=headers, method="GET")
+    request = checked_request(url, token)
     try:
         with build_opener(NoRedirect()).open(request, timeout=10) as response:
             return response.status

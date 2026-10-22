@@ -94,3 +94,5 @@ Ajouter `--expect-sha256 EMPREINTE` à `receipt.py watch` pour exiger les octets
 ```sh
 python3 receipt.py watch https://localhost:8888/documents/DOC_ID --expect-sha256 EMPREINTE --lang fr --json
 ```
+
+Les fonctions de bibliothèque vérifient aussi URL, identifiants intégrés et transport HTTPS du jeton avant toute requête, pas seulement la CLI.

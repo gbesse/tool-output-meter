@@ -94,3 +94,11 @@ Add `--expect-sha256 HASH` to `receipt.py watch` to require the expected bytes, 
 ```sh
 python3 receipt.py watch https://localhost:8888/documents/DOC_ID --expect-sha256 HASH --lang en --json
 ```
+
+## Transport / Transport / Transporte
+
+FR — Les fonctions de bibliothèque vérifient aussi URL, identifiants intégrés et transport HTTPS du jeton avant toute requête, pas seulement la CLI.
+
+EN — Library functions also validate URLs, embedded credentials and HTTPS token transport before any request, rather than relying only on the CLI.
+
+ES — Las funciones de biblioteca validan URL, credenciales integradas y transporte HTTPS del token antes de solicitar, sin depender solo de la CLI.

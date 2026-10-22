@@ -94,3 +94,5 @@ Añadir `--expect-sha256 HUELLA` a `receipt.py watch` para exigir los bytes espe
 ```sh
 python3 receipt.py watch https://localhost:8888/documents/DOC_ID --expect-sha256 HUELLA --lang es --json
 ```
+
+Las funciones de biblioteca validan URL, credenciales integradas y transporte HTTPS del token antes de solicitar, sin depender solo de la CLI.
